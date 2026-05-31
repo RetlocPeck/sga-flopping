@@ -6,8 +6,3 @@ __pycache__/
 # Auto-downloaded on first run
 pose_landmarker_lite.task
 
-# User video pools (add your own .mp4/.mov files locally)
-assets/pool_a/*
-assets/pool_b/*
-!assets/pool_a/.gitkeep
-!assets/pool_b/.gitkeep
