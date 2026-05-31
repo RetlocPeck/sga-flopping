@@ -1,4 +1,5 @@
 import random
+import threading
 import time
 from pathlib import Path
 
@@ -17,10 +18,10 @@ VIDEO_EXTS = {'.mp4', '.mov', '.mkv', '.avi', '.webm', '.m4v'}
 
 DISPLAY_W, DISPLAY_H = 1600, 900
 WEBCAM_W, WEBCAM_H = 480, 360
-COOLDOWN = 10.0
+WEBCAM_MARGIN = 20
+COOLDOWN = 2.0
 
 MAIN_WINDOW = "SGA Flopping"
-WEBCAM_WINDOW = "Webcam preview"
 
 
 def draw_skeleton(img, landmarks):
@@ -32,6 +33,16 @@ def draw_skeleton(img, landmarks):
     for i, (x, y) in enumerate(pts):
         if landmarks[i].visibility > 0.3:
             cv2.circle(img, (x, y), 3, (0, 200, 255), -1)
+
+
+def overlay_webcam(canvas, preview):
+    ph, pw = preview.shape[:2]
+    ch, cw = canvas.shape[:2]
+    x = cw - pw - WEBCAM_MARGIN
+    y = ch - ph - WEBCAM_MARGIN
+    cv2.rectangle(canvas, (x - 2, y - 2), (x + pw + 1, y + ph + 1),
+                  (255, 255, 255), 2)
+    canvas[y:y + ph, x:x + pw] = preview
 
 
 def ensure_assets():
@@ -74,6 +85,12 @@ def pick_video(pool, last=None):
     return random.choice(choices)
 
 
+def close_player_async(player):
+    if player is None:
+        return
+    threading.Thread(target=player.close, daemon=True).start()
+
+
 def main():
     ensure_assets()
 
@@ -85,7 +102,7 @@ def main():
     print(f"Pool A (foul bait):  {len(pool_a)} videos in {POOL_A_DIR}")
     print(f"Pool B (free throw): {len(pool_b)} videos in {POOL_B_DIR}")
     print("Drop .mp4/.mov/.mkv files into those folders, then re-run if needed.")
-    print("Keys:  Q = quit  |  R = reset state  |  H = toggle webcam window")
+    print("Keys:  Q = quit  |  R = reset state  |  H = toggle webcam overlay")
 
     cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
     if not cap.isOpened():
@@ -100,12 +117,8 @@ def main():
 
     cv2.namedWindow(MAIN_WINDOW, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(MAIN_WINDOW, DISPLAY_W, DISPLAY_H)
-    cv2.namedWindow(WEBCAM_WINDOW, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(WEBCAM_WINDOW, WEBCAM_W, WEBCAM_H)
     webcam_visible = True
 
-    # States: IDLE_A -> PLAYING_A -> COOLDOWN_TO_B1 -> IDLE_B1 -> PLAYING_B1
-    #      -> COOLDOWN_TO_B2 -> IDLE_B2 -> PLAYING_B2 -> COOLDOWN_TO_A -> IDLE_A
     state = "IDLE_A"
     state_entered = time.monotonic()
     player = None
@@ -147,6 +160,41 @@ def main():
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 landmarks = pose.detect(rgb)
 
+            now = time.monotonic()
+
+            if state == "IDLE_A":
+                canvas = default_canvas.copy()
+                if shot.update(landmarks):
+                    start_video(pool_a, "A", "A")
+            elif state == "IDLE_B1":
+                canvas = default_canvas.copy()
+                if shot.update(landmarks):
+                    start_video(pool_b, "B1", "B")
+            elif state == "IDLE_B2":
+                canvas = default_canvas.copy()
+                if shot.update(landmarks):
+                    start_video(pool_b, "B2", "B")
+            elif playing:
+                vframe = player.get_frame()
+                if player.done:
+                    close_player_async(player)
+                    player = None
+                    label = state.split("_", 1)[1]
+                    transition_after_video(label)
+                    canvas = default_canvas.copy()
+                elif vframe is not None:
+                    canvas = fit_image(vframe, DISPLAY_W, DISPLAY_H)
+                else:
+                    canvas = default_canvas.copy()
+            elif state.startswith("COOLDOWN_TO_"):
+                canvas = default_canvas.copy()
+                if now - state_entered >= COOLDOWN:
+                    state = "IDLE_" + state[len("COOLDOWN_TO_"):]
+                    state_entered = now
+                    shot.reset()
+            else:
+                canvas = default_canvas.copy()
+
             if webcam_visible:
                 preview = frame.copy()
                 if landmarks is not None:
@@ -155,66 +203,24 @@ def main():
                 color = (0, 255, 0) if state.startswith("IDLE_") else (0, 200, 255)
                 cv2.putText(preview, state, (10, 25),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-                cv2.imshow(WEBCAM_WINDOW, preview)
+                overlay_webcam(canvas, preview)
 
-            now = time.monotonic()
-
-            if state == "IDLE_A":
-                cv2.imshow(MAIN_WINDOW, default_canvas)
-                if shot.update(landmarks):
-                    start_video(pool_a, "A", "A")
-
-            elif state == "IDLE_B1":
-                cv2.imshow(MAIN_WINDOW, default_canvas)
-                if shot.update(landmarks):
-                    start_video(pool_b, "B1", "B")
-
-            elif state == "IDLE_B2":
-                cv2.imshow(MAIN_WINDOW, default_canvas)
-                if shot.update(landmarks):
-                    start_video(pool_b, "B2", "B")
-
-            elif playing:
-                vframe = player.get_frame()
-                if player.done:
-                    player.close()
-                    player = None
-                    label = state.split("_", 1)[1]
-                    transition_after_video(label)
-                    cv2.imshow(MAIN_WINDOW, default_canvas)
-                elif vframe is not None:
-                    cv2.imshow(MAIN_WINDOW, fit_image(vframe, DISPLAY_W, DISPLAY_H))
-                else:
-                    cv2.imshow(MAIN_WINDOW, default_canvas)
-
-            elif state.startswith("COOLDOWN_TO_"):
-                cv2.imshow(MAIN_WINDOW, default_canvas)
-                if now - state_entered >= COOLDOWN:
-                    state = "IDLE_" + state[len("COOLDOWN_TO_"):]
-                    state_entered = now
-                    shot.reset()
+            cv2.imshow(MAIN_WINDOW, canvas)
 
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):
                 break
             elif key == ord('r'):
-                if player:
-                    player.close()
-                    player = None
+                close_player_async(player)
+                player = None
                 state = "IDLE_A"
                 state_entered = time.monotonic()
                 shot.reset()
                 print("[reset] back to IDLE_A")
             elif key == ord('h'):
                 webcam_visible = not webcam_visible
-                if not webcam_visible:
-                    cv2.destroyWindow(WEBCAM_WINDOW)
-                else:
-                    cv2.namedWindow(WEBCAM_WINDOW, cv2.WINDOW_NORMAL)
-                    cv2.resizeWindow(WEBCAM_WINDOW, WEBCAM_W, WEBCAM_H)
     finally:
-        if player:
-            player.close()
+        close_player_async(player)
         cap.release()
         cv2.destroyAllWindows()
 

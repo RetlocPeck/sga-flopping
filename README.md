@@ -2,7 +2,7 @@
 
 A webcam app that watches for a basketball shooting motion and plays a video. Built for a bit about Shai Gilgeous-Alexander's foul-baiting → free-throw routine.
 
-While idle, it shows a default image. Throw a shooting motion → it plays a random "foul bait" clip. Wait ten seconds, motion again → it plays a "free throw" clip. One more shot → another free throw. Then it loops back to foul bait.
+While idle, it shows a default image. Throw a shooting motion → it plays a random "foul bait" clip. Wait two seconds, motion again → it plays a "free throw" clip. One more shot → another free throw. Then it loops back to foul bait.
 
 ## How it works
 
@@ -18,9 +18,9 @@ The detector picks whichever arm has higher landmark visibility on a given frame
 **State machine.**
 
 ```
-IDLE_A     --shot-->  PLAYING_A   --video ends-->  10s cooldown
-IDLE_B1    --shot-->  PLAYING_B1  --video ends-->  10s cooldown
-IDLE_B2    --shot-->  PLAYING_B2  --video ends-->  10s cooldown  -->  back to IDLE_A
+IDLE_A     --shot-->  PLAYING_A   --video ends-->  2s cooldown
+IDLE_B1    --shot-->  PLAYING_B1  --video ends-->  2s cooldown
+IDLE_B2    --shot-->  PLAYING_B2  --video ends-->  2s cooldown  -->  back to IDLE_A
 ```
 
 Pool A is the foul-bait clips; Pool B is the free-throw clips. The same Pool B video won't play twice in a row when there are multiple choices.
@@ -44,10 +44,7 @@ Then run:
 python main.py
 ```
 
-Two windows open:
-
-- **SGA Flopping** — 1600×900 main display (shows the default image, or the current video)
-- **Webcam preview** — 480×360, with the skeleton overlay and current state in the corner
+A single 1600×900 window opens (titled **SGA Flopping**) that shows the default image, or the current video. A 480×360 webcam preview with the skeleton overlay and current state label is composited into the bottom-right corner so you can see yourself frame up while filming the rest of the screen.
 
 ## Controls
 
@@ -55,7 +52,7 @@ Two windows open:
 | --- | ------ |
 | `Q` | Quit |
 | `R` | Reset to `IDLE_A` |
-| `H` | Toggle the webcam preview window |
+| `H` | Toggle the webcam overlay |
 
 ## Tuning
 
@@ -70,7 +67,7 @@ The cooldown is `COOLDOWN` at the top of `main.py`.
 
 ## Files
 
-- `main.py` — camera loop, state machine, windows, controls
+- `main.py` — camera loop, state machine, window + overlay, controls
 - `pose_detector.py` — MediaPipe wrapper + shot-motion state machine
 - `media_player.py` — `ffpyplayer` wrapper for video + audio playback
 - `assets/default.png` — shown while idle
