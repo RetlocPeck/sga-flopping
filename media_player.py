@@ -22,6 +22,7 @@ class VideoPlayer:
         frame, val = self.player.get_frame()
         if val == 'eof':
             self.done = True
+            self._silence()
             return self.last_frame
 
         if frame is not None:
@@ -33,8 +34,16 @@ class VideoPlayer:
 
         return self.last_frame
 
+    def _silence(self):
+        for fn, arg in (("set_pause", True), ("set_mute", True), ("set_volume", 0.0)):
+            try:
+                getattr(self.player, fn)(arg)
+            except Exception:
+                pass
+
     def close(self):
         self.done = True
+        self._silence()
         try:
             self.player.close_player()
         except Exception:
